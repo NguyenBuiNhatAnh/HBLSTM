@@ -35,7 +35,7 @@ class HLSTMCell(nn.Module):
         i = torch.sigmoid(i)   # input gate
         f = torch.sigmoid(f)   # forget gate
         o = torch.sigmoid(o)   # output gate
-        u = torch.sigmoid(u)   # update gate (🔥 mới)
+        u = torch.sigmoid(u)   # update gate (mới)
 
         g = torch.tanh(g)      # candidate
 
@@ -54,12 +54,11 @@ class HLSTMCell(nn.Module):
 
 
 # =========================
-# BIDIRECTIONAL HLSTM
+# BIDIRECTIONAL HLSTM (Đã sửa & Tối ưu)
 # =========================
 class HBLSTM(nn.Module):
     def __init__(self, input_size, hidden_size):
         super().__init__()
-
         self.hidden_size = hidden_size
 
         self.fw = HLSTMCell(input_size, hidden_size)
@@ -71,43 +70,36 @@ class HBLSTM(nn.Module):
         """
         x: (batch, seq_len, input_size)
         """
-
         batch, seq_len, _ = x.shape
         device = x.device
 
-        # ===== Forward direction =====
+        # ===== Khởi tạo state =====
         h_f = torch.zeros(batch, self.hidden_size, device=device)
         c_f = torch.zeros_like(h_f)
         k_f = torch.zeros_like(h_f)
 
-        outputs_f = []
-
-        for t in range(seq_len):
-            h_f, c_f, k_f = self.fw(x[:, t, :], h_f, c_f, k_f)
-            outputs_f.append(h_f.unsqueeze(1))
-
-        outputs_f = torch.cat(outputs_f, dim=1)
-
-        # ===== Backward direction =====
         h_b = torch.zeros(batch, self.hidden_size, device=device)
         c_b = torch.zeros_like(h_b)
         k_b = torch.zeros_like(h_b)
 
-        outputs_b = []
+        # ===== Forward direction =====
+        # Chạy từ t=0 đến t=seq_len-1
+        for t in range(seq_len):
+            h_f, c_f, k_f = self.fw(x[:, t, :], h_f, c_f, k_f)
+            # Sau khi hết vòng for, h_f chứa thông tin của cả chuỗi (chiều xuôi)
 
+        # ===== Backward direction =====
+        # Chạy ngược từ t=seq_len-1 về t=0
         for t in reversed(range(seq_len)):
             h_b, c_b, k_b = self.bw(x[:, t, :], h_b, c_b, k_b)
-            outputs_b.insert(0, h_b.unsqueeze(1))
+            # Sau khi hết vòng for, h_b chứa thông tin của cả chuỗi (chiều ngược)
 
-        outputs_b = torch.cat(outputs_b, dim=1)
+        # ===== Many-to-one Concatenate =====
+        # Ghép 2 hidden state tổng hợp của 2 chiều lại với nhau
+        out = torch.cat([h_f, h_b], dim=1)  # shape: (batch, 2 * hidden_size)
 
-        # ===== Concatenate =====
-        out = torch.cat([outputs_f, outputs_b], dim=2)
-
-        # ===== Many-to-one (lấy timestep cuối) =====
-        out = out[:, -1, :]
-
-        return self.fc(out)
+        # ===== Final Prediction =====
+        return self.fc(out)  # shape: (batch, 1)
 
 
 # =========================
