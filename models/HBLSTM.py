@@ -54,7 +54,7 @@ class HLSTMCell(nn.Module):
 
 
 # =========================
-# BIDIRECTIONAL HLSTM (Đã sửa & Tối ưu)
+# BIDIRECTIONAL HBLSTM (Đã sửa & Tối ưu)
 # =========================
 class HBLSTM(nn.Module):
     def __init__(self, input_size, hidden_size):
