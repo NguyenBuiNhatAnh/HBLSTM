@@ -105,16 +105,17 @@ class HBLSTM(nn.Module):
 # =========================
 # TEST MODEL
 # =========================
-if __name__ == "__main__":
-    batch = 4
-    seq_len = 10
-    input_size = 5
-    hidden_size = 16
+# if __name__ == "__main__":
+#     batch = 4
+#     seq_len = 10
+#     input_size = 5
+#     hidden_size = 16
 
-    x = torch.randn(batch, seq_len, input_size)
+#     x = torch.randn(batch, seq_len, input_size)
 
-    model = HBLSTM(input_size, hidden_size)
+#     model = HBLSTM(input_size, hidden_size)
 
-    out = model(x)
+#     out = model(x)
 
-    print("Output shape:", out.shape)  # (batch, 1)
+#     print("Output shape:", out.shape)  # (batch, 1)
+
