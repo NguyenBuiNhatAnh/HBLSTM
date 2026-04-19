@@ -1,0 +1,40 @@
+stock_hblstm_project/
+│
+├── infrastructure/               # 1. HẠ TẦNG (Chạy các dịch vụ cốt lõi)
+│   ├── docker-compose.yml        # File khởi tạo Kafka, Spark, MinIO, PostgreSQL, Airflow
+│   ├── init_db.sql               # Script tự động tạo bảng (tables) trong PostgreSQL
+│   └── minio_setup.sh            # Script tạo sẵn các bucket (bucket-data, bucket-models)
+│
+├── dags/                         # 2. LẬP LỊCH (Dành cho Apache Airflow)
+│   └── retrain_pipeline.py       # Định nghĩa luồng chạy retrain vào cuối ngày
+│
+├── src/                          # 3. MÃ NGUỒN CHÍNH (Python)
+│   │
+│   ├── crawlers/                 # --- Thu thập dữ liệu ---
+│   │   ├── offline_crawler.py    # Cào dữ liệu lịch sử (nhiều năm) -> lưu vào MinIO
+│   │   └── realtime_crawler.py   # Cào giá chứng khoán liên tục -> đẩy vào Kafka
+│   │
+│   ├── ml_pipeline/              # --- Machine Learning & Models ---
+│   │   ├── model_hblstm.py       # Khai báo kiến trúc mạng H.BLSTM (Keras/PyTorch)
+│   │   ├── train_initial.py      # Pipeline 1: Train model từ số 0, lưu Model & Scaler lên MinIO
+│   │   └── retrain_batch.py      # Pipeline 3: Tải data mới+cũ từ MinIO, retrain model, lưu đè lên MinIO
+│   │
+│   ├── streaming/                # --- Pipeline Thời gian thực ---
+│   │   └── spark_streaming.py    # Pipeline 2: Đọc Kafka -> Load Model -> Predict -> Incremental Learn -> Postgres & MinIO
+│   │
+│   └── module/                    # --- Các hàm dùng chung (Helper functions) ---
+│       ├── data_processor.py     # Tính toán chỉ báo (EMA, RSI...), làm sạch dữ liệu
+│       ├── minio_helper.py       # Hàm hỗ trợ lưu/tải file (Model, Scaler, Parquet) với MinIO
+│       └── db_helper.py          # Kết nối PostgreSQL
+│
+├── web_app/                      # 4. GIAO DIỆN HIỂN THỊ
+│   ├── backend/                  # API server (VD: FastAPI hoặc NodeJS) đọc data từ Postgres
+│   │   ├── main.py
+│   │   └── requirements.txt
+│   └── frontend/                 # Giao diện web vẽ biểu đồ (VD: ReactJS hoặc HTML/JS đơn giản)
+│       ├── index.html
+│       └── chart_script.js
+│
+├── .env                          # Chứa biến môi trường (MINIO_USER, DB_PASSWORD, KAFKA_TOPIC...)
+├── requirements.txt              # Danh sách thư viện Python (pyspark, tensorflow, kafka-python, boto3...)
+└── README.md                     # Tài liệu hướng dẫn cách chạy project từng bước
