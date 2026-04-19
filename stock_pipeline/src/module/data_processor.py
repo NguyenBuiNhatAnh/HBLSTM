@@ -23,19 +23,23 @@ def preprocess_data(df):
 
     # d. Convert string date-time to numerical timestamp 
     # (Chuyển đổi thời gian thành con số dạng Unix timestamp - tính bằng giây)
-    df_clean['timestamp'] = df_clean['datetime'].astype('int64') // 10**9
+    df_clean['timestamp'] = df_clean['datetime'].apply(lambda x: int(x.timestamp()))
 
     # (Tùy chọn) Reset lại index của bảng cho gọn gàng sau khi xóa dòng và sắp xếp
     df_clean = df_clean.reset_index(drop=True)
 
     return df_clean
 
-def calculate_ema5(data):
-    import pandas as pd
-    # Nếu data là Series (chuỗi giá trị), tính trực tiếp
-    # Nếu data là DataFrame, lấy cột 'close'
-    if isinstance(data, pd.DataFrame):
-        return data['close'].ewm(span=5, adjust=False).mean()
-    else:
-        # Giả định data đã là chuỗi số (Series) của cột close
-        return data.ewm(span=5, adjust=False).mean()
+def calculate_ema5(df):
+    """
+    Hàm tính toán đường trung bình động hàm mũ EMA5.
+    Đầu vào: df (DataFrame đã được tiền xử lý và sắp xếp theo thời gian)
+    """
+    df_ema = df.copy()
+    
+    # Tính EMA5 cho cột 'close'
+    # span=5: Chu kỳ 5 nến
+    # adjust=False: Sử dụng công thức đệ quy tiêu chuẩn (giống hệ thống TradingView)
+    df_ema['EMA5'] = df_ema['close'].ewm(span=5, adjust=False).mean()
+    
+    return df_ema
