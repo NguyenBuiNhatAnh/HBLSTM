@@ -1,2 +1,4 @@
 data/stock_data/
 venv/
+runtime_assets/
+checkpoint/
