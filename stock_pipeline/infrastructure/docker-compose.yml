@@ -90,6 +90,7 @@ services:
       KAFKA_BROKERCONNECT: "kafka:29092"
     depends_on:
       - kafka
+    restart: always
 
 networks:
   default:
