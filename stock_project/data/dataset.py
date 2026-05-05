@@ -20,13 +20,13 @@ class TimeSeriesDataset(Dataset):
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
 
-def create_sliding_windows(data, target_col_idx, seq_len):
-    """
-    Tạo các chuỗi dữ liệu đầu vào (X) và nhãn (y) theo dạng cửa sổ trượt.
-    Dự đoán giá trị của bước thời gian tiếp theo.
-    """
+def create_sliding_windows(data, target_col, feature_cols, seq_len):
     X, y = [], []
+    
+    target_idx = feature_cols.index(target_col)
+
     for i in range(len(data) - seq_len):
-        X.append(data[i : i + seq_len, :]) # Lấy seq_len dòng liên tiếp
-        y.append(data[i + seq_len, target_col_idx]) # Dự đoán mục tiêu ở dòng tiếp theo
+        X.append(data[i:i+seq_len])
+        y.append(data[i+seq_len, target_idx])
+
     return np.array(X), np.array(y)

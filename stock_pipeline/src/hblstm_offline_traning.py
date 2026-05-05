@@ -26,7 +26,7 @@ device = torch.device("cpu")
 print(f"Đang chạy trên thiết bị: {device}")
 
 # ==========================
-# 2. XỬ LÝ DỮ LIỆU & CHUẨN HÓA (ĐÃ FIX DATA LEAKAGE)
+# 2. XỬ LÝ DỮ LIỆU & CHUẨN HÓA
 # ==========================
 print("Đang tải và xử lý dữ liệu...")
 df_raw = pd.read_csv('000001.csv')
@@ -60,7 +60,12 @@ scaled_data = scaler.transform(data_values)
 # ==========================
 # 3. TẠO DATASET & DATALOADER
 # ==========================
-X, y = create_sliding_windows(scaled_data, target_col_idx, seq_len)
+X, y = create_sliding_windows(
+    scaled_data,
+    target_col='close',
+    feature_cols=features_cols,
+    seq_len=3
+)
 
 # Train/Test Split (Chia theo thứ tự thời gian, 80% train, 20% test)
 split_idx = int(len(X) * 0.8)
