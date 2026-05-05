@@ -161,7 +161,7 @@ class HBLSTMNetwork(nn.Module):
 
 # ---- 4.3 Wrapper ----
 class HBLSTMModel(BaseModel):
-    def __init__(self, input_size=8, hidden_size=64, seq_len=10, lr=1e-4):
+    def __init__(self, input_size=7, hidden_size=64, seq_len=3, lr=1e-4):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.seq_len = seq_len
