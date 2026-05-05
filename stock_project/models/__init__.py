@@ -31,11 +31,10 @@ class BaseModel(ABC):
 # ========================================
 class LinearModel(BaseModel):
     def __init__(self):
-        self.model = None
-    
-    def train(self, X, y):
         from sklearn.linear_model import LinearRegression
         self.model = LinearRegression()
+    
+    def train(self, X, y):
         self.model.fit(X, y)
     
     def predict(self, X):
@@ -53,12 +52,11 @@ class LinearModel(BaseModel):
 # ========================================
 class DTModel(BaseModel):
     def __init__(self, max_depth=10):
-        self.model = None
+        from sklearn.tree import DecisionTreeRegressor
         self.max_depth = max_depth
+        self.model = DecisionTreeRegressor(max_depth=self.max_depth)
     
     def train(self, X, y):
-        from sklearn.tree import DecisionTreeRegressor
-        self.model = DecisionTreeRegressor(max_depth=self.max_depth)
         self.model.fit(X, y)
     
     def predict(self, X):
@@ -76,12 +74,11 @@ class DTModel(BaseModel):
 # ========================================
 class KNNModel(BaseModel):
     def __init__(self, n_neighbors=5):
-        self.model = None
+        from sklearn.neighbors import KNeighborsRegressor
         self.n_neighbors = n_neighbors
+        self.model = KNeighborsRegressor(n_neighbors=self.n_neighbors)
     
     def train(self, X, y):
-        from sklearn.neighbors import KNeighborsRegressor
-        self.model = KNeighborsRegressor(n_neighbors=self.n_neighbors)
         self.model.fit(X, y)
     
     def predict(self, X):
