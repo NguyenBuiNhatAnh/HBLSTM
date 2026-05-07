@@ -1,4 +1,12 @@
 services:
+  frontend:
+    build: ./frontend
+    container_name: stock-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
   backend:
     build: ./backend
     ports:
