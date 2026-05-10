@@ -32,12 +32,20 @@ log = logging.getLogger("spark_streaming")
 # ──────────────────────────────────────────────
 # CONFIG
 # ──────────────────────────────────────────────
+# KAFKA_TOPIC      = "stock-price"
+# KAFKA_SERVER     = "localhost:9092"
+# MINIO_ENDPOINT   = "localhost:9005"
+# ACCESS_KEY       = "admin"
+# SECRET_KEY       = "password123"
+# BACKEND_URL      = "http://localhost:8000/predictions/"
+# EMA_ALPHA        = 2 / (5 + 1)
+
 KAFKA_TOPIC      = "stock-price"
-KAFKA_SERVER     = "localhost:9092"
-MINIO_ENDPOINT   = "localhost:9005"
+KAFKA_SERVER     = "kafka:29092"
+MINIO_ENDPOINT   = "stock-minio:9000"   # dùng tên container + port nội bộ
 ACCESS_KEY       = "admin"
 SECRET_KEY       = "password123"
-BACKEND_URL      = "http://localhost:8000/predictions/"
+BACKEND_URL      = "http://backend:8000/predictions/"   # tên service trong compose
 EMA_ALPHA        = 2 / (5 + 1)
 
 # ──────────────────────────────────────────────
