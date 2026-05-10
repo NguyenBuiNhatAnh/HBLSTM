@@ -101,9 +101,22 @@ def load_models(symbol: str, client: Minio):
     )
     hblstm.model.train()  # train mode để incremental_update hoạt động
 
-    df_history = pd.read_parquet(
-        io.BytesIO(client.get_object("bucket-data", f"{symbol}/historical.parquet").read())
+    objects = client.list_objects(
+        "bucket-data",
+        prefix=f"{symbol}/",
+        recursive=True
     )
+    
+    dfs = []
+
+    for obj in objects:
+        response = client.get_object("bucket-data", obj.object_name)
+
+        df = pd.read_parquet(io.BytesIO(response.read()))
+
+        dfs.append(df)
+
+    df_history = pd.concat(dfs, ignore_index=True)
 
     models = {"linear": linear, "dt": dt, "knn": knn, "hblstm": hblstm}
     return models, scaler, config, df_history
@@ -125,7 +138,7 @@ def post_prediction(symbol: str, predicted_price: float,
                     actual_price: float, model_type: str,
                     timestamp: str):
     """
-    POST một dự đoán của một model lên Django/FastAPI backend.
+    POST một dự đoán của một model lên FastAPI backend.
     Không raise exception để không crash Spark.
     """
     payload = {
