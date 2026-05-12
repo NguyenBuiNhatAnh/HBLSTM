@@ -1,7 +1,15 @@
 import ModelChart from "../components/ModelChart"
 import { useStockData } from "../hooks/useStockData"
 
-const MODELS = ["HBLSTM", "KNN", "DecisionTree", "LinearRegression"]
+const MODELS = [
+  "HBLSTM",
+  "KNN",
+  "DecisionTree",
+  "LinearRegression",
+  "LightGBM",
+  "CNNLSTM",
+]
+
 
 export default function SymbolPage({ symbol }) {
   const { data, loading } = useStockData(symbol)

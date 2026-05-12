@@ -1,6 +1,6 @@
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
-from stock_project.models import LinearModel, DTModel, KNNModel, HBLSTMModel
+from stock_project.models import LinearModel, DTModel, KNNModel, HBLSTMModel, LightGBMModel, CNNLSTMModel
 from stock_project.data.data_preprocessing import calculate_ema5, preprocess_data
 from stock_project.data.dataset import create_sliding_windows
 from sklearn.metrics import mean_squared_error
@@ -90,7 +90,9 @@ for index in data_paths:
     linear_regression = LinearModel()
     decision_tree = DTModel()
     knn = KNNModel()
+    lightgbm = LightGBMModel()
     hblstm = HBLSTMModel()
+    cnnlstm = CNNLSTMModel()
     
     # Train 4 model
     print(f"Đang tải train LR trên {index['symbol']}")
@@ -99,22 +101,30 @@ for index in data_paths:
     decision_tree.train(X_train_flat, y_train)
     print(f"Đang tải train KNN trên {index['symbol']}")
     knn.train(X_train_flat, y_train)
+    print(f"Đang tải train LightGBM trên {index['symbol']}")
+    lightgbm.train(X_train_flat, y_train)
     print(f"Đang tải train HBLSTM trên {index['symbol']}")
     hblstm.train(X_train, y_train)
+    print(f"Đang tải train CNNLSTM trên {index['symbol']}")
+    cnnlstm.train(X_train, y_train)
     
     # Test 4 model
     # ===== SKLEARN =====
     lr_preds = linear_regression.predict(X_test_flat)
     dt_preds = decision_tree.predict(X_test_flat)
     knn_preds = knn.predict(X_test_flat)
+    lightgbm_preds = lightgbm.predict(X_test_flat)
 
     # ===== HBLSTM =====
     hblstm_preds = hblstm.predict(X_test)
+    cnnlstm_preds = cnnlstm.predict(X_test)
     
     evaluate(y_test, lr_preds, "Linear Regression")
     evaluate(y_test, dt_preds, "Decision Tree")
     evaluate(y_test, knn_preds, "KNN")
+    evaluate(y_test, lightgbm_preds, "LightGBM")
     evaluate(y_test, hblstm_preds, "HBLSTM")
+    evaluate(y_test, cnnlstm_preds, "CNN_LSTM")
     
     # ==========================
     # 5. UPLOAD TỰ ĐỘNG LÊN MINIO
@@ -142,7 +152,8 @@ for index in data_paths:
     models = {
         "linear": linear_regression.model,
         "decision_tree": decision_tree.model,
-        "knn": knn.model
+        "knn": knn.model,
+        "lightgbm": lightgbm.model
     }
     
     # sklearn models (.pkl)
@@ -170,6 +181,18 @@ for index in data_paths:
         length=buffer.getbuffer().nbytes
     )
     
+    # CNNLSTM (.pth)
+    buffer = io.BytesIO()
+    torch.save(cnnlstm.model.state_dict(), buffer)
+    buffer.seek(0)
+
+    client.put_object(
+        "bucket-models",
+        f"{symbol}/cnnlstm.pth",
+        buffer,
+        length=buffer.getbuffer().nbytes
+    )
+    
     # ==========================
     # 5.2. Upload Scaler
     # ==========================
@@ -188,11 +211,14 @@ for index in data_paths:
     # 5.3. UPLOAD CONFIG
     # ==========================
     config = {
-        "seq_len": 3,
-        "input_size": input_size,
-        "hidden_size": hblstm.hidden_size,
-        "features_cols": features_cols,
-        "target_col": "close"
+    "seq_len": 3,
+    "input_size": input_size,
+
+    "hblstm_hidden_size": hblstm.hidden_size,
+    "cnnlstm_hidden_size": cnnlstm.hidden_size,
+
+    "features_cols": features_cols,
+    "target_col": "close"
     }
 
     config_bytes = json.dumps(config).encode("utf-8")

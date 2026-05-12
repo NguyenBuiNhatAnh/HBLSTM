@@ -1,6 +1,13 @@
 import { useState, useEffect } from "react"
 
-const MODELS = ["HBLSTM", "KNN", "DecisionTree", "LinearRegression"]
+const MODELS = [
+  "HBLSTM",
+  "KNN",
+  "DecisionTree",
+  "LinearRegression",
+  "LightGBM",
+  "CNNLSTM",
+]
 
 export function useStockData(symbol) {
   const [data, setData] = useState({})  // { HBLSTM: [...], KNN: [...], ... }

@@ -11,17 +11,15 @@ from collections import defaultdict
 
 import time
 import io
-import json
 import logging
-import requests
 
 import pandas as pd
-import joblib
-import torch
 import numpy as np
 from minio import Minio
+# from support_func import load_models, inverse_close, post_prediction, load_all_runtime_states
+from stock_project.support_func import *
 
-from stock_project.models import LinearModel, DTModel, KNNModel, HBLSTMModel
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,7 +43,6 @@ KAFKA_SERVER     = "kafka:29092"
 MINIO_ENDPOINT   = "stock-minio:9000"   # dùng tên container + port nội bộ
 ACCESS_KEY       = "admin"
 SECRET_KEY       = "password123"
-BACKEND_URL      = "http://backend:8000/predictions/"   # tên service trong compose
 EMA_ALPHA        = 2 / (5 + 1)
 
 # ──────────────────────────────────────────────
@@ -74,99 +71,6 @@ output_schema = StructType([
     StructField("pred_hblstm",  DoubleType(), True),
 ])
 
-# ──────────────────────────────────────────────
-# LOAD MODELS TỪ MINIO
-# ──────────────────────────────────────────────
-def load_models(symbol: str, client: Minio):
-    def _pkl(path):
-        return joblib.load(io.BytesIO(client.get_object("bucket-models", path).read()))
-
-    linear = LinearModel()
-    linear.model = _pkl(f"{symbol}/linear.pkl")
-
-    dt = DTModel()
-    dt.model = _pkl(f"{symbol}/decision_tree.pkl")
-
-    knn = KNNModel()
-    knn.model = _pkl(f"{symbol}/knn.pkl")
-
-    scaler = _pkl(f"{symbol}/scaler.pkl")
-
-    config = json.loads(
-        client.get_object("bucket-models", f"{symbol}/config.json").read().decode()
-    )
-
-    hblstm = HBLSTMModel(
-        input_size=config["input_size"],
-        hidden_size=config["hidden_size"],
-        seq_len=config["seq_len"],
-    )
-    hblstm.model.load_state_dict(
-        torch.load(
-            io.BytesIO(client.get_object("bucket-models", f"{symbol}/hblstm.pth").read()),
-            map_location="cpu",
-        )
-    )
-    hblstm.model.train()  # train mode để incremental_update hoạt động
-
-    objects = client.list_objects(
-        "bucket-data",
-        prefix=f"{symbol}/",
-        recursive=True
-    )
-    
-    dfs = []
-
-    for obj in objects:
-        response = client.get_object("bucket-data", obj.object_name)
-
-        df = pd.read_parquet(io.BytesIO(response.read()))
-
-        dfs.append(df)
-
-    df_history = pd.concat(dfs, ignore_index=True)
-
-    models = {"linear": linear, "dt": dt, "knn": knn, "hblstm": hblstm}
-    return models, scaler, config, df_history
-
-
-# ──────────────────────────────────────────────
-# INVERSE TRANSFORM cột close
-# ──────────────────────────────────────────────
-def inverse_close(scaler, scaled_val: float, n_features: int, target_idx: int = 3) -> float:
-    dummy = np.zeros((1, n_features))
-    dummy[0, target_idx] = scaled_val
-    return float(scaler.inverse_transform(dummy)[0, target_idx])
-
-
-# ──────────────────────────────────────────────
-# POST PREDICTION LÊN BACKEND
-# ──────────────────────────────────────────────
-def post_prediction(symbol: str, predicted_price: float,
-                    actual_price: float, model_type: str,
-                    timestamp: str):
-    """
-    POST một dự đoán của một model lên FastAPI backend.
-    Không raise exception để không crash Spark.
-    """
-    payload = {
-        "symbol":          symbol,
-        "predicted_price": round(predicted_price, 6),
-        "actual_price":    round(actual_price, 6),
-        "model_type":      model_type,
-        "timestamp":       timestamp,
-    }
-    try:
-        resp = requests.post(BACKEND_URL, json=payload, timeout=5)
-        if resp.status_code not in (200, 201):
-            log.warning(
-                f"POST [{model_type}] {symbol} → HTTP {resp.status_code}: {resp.text[:200]}"
-            )
-        else:
-            log.info(f"POST [{model_type}] {symbol} @ {timestamp} → OK")
-    except requests.exceptions.RequestException as e:
-        log.error(f"POST failed [{model_type}] {symbol}: {e}")
-
 
 # ──────────────────────────────────────────────
 # PROCESS PARTITION (chạy trên executor)
@@ -178,7 +82,7 @@ def process_partition(rows):
 
     model_cache  = {}                  # symbol → (models, scaler, config)
     buffer_cache = defaultdict(list)   # symbol → list of scaled feature vectors
-    ema_state    = {}                  # symbol → last EMA5
+    ema_state = load_all_runtime_states(client)                  # symbol → last EMA5
     row_cache    = defaultdict(list)   # symbol → raw rows để flush MinIO
 
     for row in rows:
@@ -186,9 +90,8 @@ def process_partition(rows):
 
         # ── Load lazy ─────────────────────────────────────────────────────────
         if symbol not in model_cache:
-            models, scaler, config, df_history = load_models(symbol, client)
+            models, scaler, config = load_models(symbol, client)
             model_cache[symbol] = (models, scaler, config)
-            ema_state[symbol] = float(df_history["EMA5"].iloc[-1])
 
         models, scaler, config = model_cache[symbol]
         seq_len    = config["seq_len"]
@@ -239,19 +142,36 @@ def process_partition(rows):
             p_knn = inverse_close(
                 scaler, float(models["knn"].predict(seq_flat)[0]), n_features, target_idx
             )
+            p_lightgbm = inverse_close(
+                scaler, float(models["lightgbm"].predict(seq_flat)[0]), n_features, target_idx
+            )
             p_hblstm = inverse_close(
                 scaler, float(models["hblstm"].predict(seq)[0]), n_features, target_idx
+            )
+            p_cnnlstm = inverse_close(
+                scaler, float(models["cnnlstm"].predict(seq)[0]), n_features, target_idx
             )
 
             # Incremental update HBLSTM
             models["hblstm"].incremental_update(seq, np.array([[scaled_close]]))
 
+            # ==========================================
+            # LOGGING
+            # ==========================================
             log.info(
-                f"[{symbol}] {row.datetime} | actual={row.close:.4f} | "
-                f"LR={p_linear:.4f} | DT={p_dt:.4f} | "
-                f"KNN={p_knn:.4f} | HBLSTM={p_hblstm:.4f}"
+                f"[{symbol}] {row.datetime} | "
+                f"actual={row.close:.4f} | "
+                f"LR={p_linear:.4f} | "
+                f"DT={p_dt:.4f} | "
+                f"KNN={p_knn:.4f} | "
+                f"LGBM={p_lightgbm:.4f} | "
+                f"HBLSTM={p_hblstm:.4f} | "
+                f"CNNLSTM={p_cnnlstm:.4f}"
             )
 
+            # ==========================================
+            # OUTPUT
+            # ==========================================
             yield (
                 symbol,
                 str(row.datetime),
@@ -274,62 +194,150 @@ def process_partition(rows):
 
 
 # ──────────────────────────────────────────────
-# PROCESS BATCH (chạy trên driver)
+# PROCESS BATCH (driver)
 # ──────────────────────────────────────────────
 def process_batch(batch_df, epoch_id):
+
+    # ==========================================
+    # EMPTY CHECK
+    # ==========================================
     if batch_df.rdd.isEmpty():
-        log.info(f"[Batch {epoch_id}] Rỗng.")
+
+        log.info(
+            f"[Batch {epoch_id}] Empty batch."
+        )
+
         return
 
-    rdd = batch_df.rdd.mapPartitions(process_partition)
+    # ==========================================
+    # PARTITION PROCESSING
+    # ==========================================
+    rdd = batch_df.rdd.mapPartitions(
+        process_partition
+    )
 
-    # Buffer chưa đủ seq_len → không có gì để predict
+    # ==========================================
+    # WARMUP CHECK
+    # ==========================================
     if rdd.isEmpty():
-        log.info(f"[Batch {epoch_id}] Warm-up – buffer chưa đủ seq_len.")
+
+        log.info(
+            f"[Batch {epoch_id}] "
+            f"Warm-up phase "
+            f"(buffer < seq_len)."
+        )
+
         return
 
-    result_df = spark.createDataFrame(rdd, schema=output_schema)
+    # ==========================================
+    # CREATE RESULT DATAFRAME
+    # ==========================================
+    result_df = spark.createDataFrame(
+        rdd,
+        schema=output_schema
+    )
+
     result_df.show(truncate=False)
 
-    # ── POST 4 predictions / row lên backend ──────────────────────────────────
+    # ==========================================
+    # COLLECT RESULTS
+    # ==========================================
     rows = result_df.collect()
 
+    # ==========================================
+    # MODEL FIELD MAPPING
+    # ==========================================
     MODEL_MAP = [
         ("LinearRegression", "pred_linear"),
         ("DecisionTree",     "pred_dt"),
         ("KNN",              "pred_knn"),
+        ("LightGBM",         "pred_lightgbm"),
         ("HBLSTM",           "pred_hblstm"),
+        ("CNNLSTM",          "pred_cnnlstm"),
     ]
 
+    # ==========================================
+    # POST TO BACKEND
+    # ==========================================
     for r in rows:
+
         for model_type, field in MODEL_MAP:
-            post_prediction(
-                symbol          = r.symbol,
-                predicted_price = getattr(r, field),
-                actual_price    = r.actual_price,
-                model_type      = model_type,
-                timestamp       = r.datetime,
-            )
 
-    # ── Lưu predictions batch lên MinIO ───────────────────────────────────────
-    client = Minio(MINIO_ENDPOINT, access_key=ACCESS_KEY, secret_key=SECRET_KEY, secure=False)
+            try:
 
-    if not client.bucket_exists("bucket-predictions"):
-        client.make_bucket("bucket-predictions")
+                post_prediction(
+                    symbol          = r.symbol,
+                    predicted_price = float(getattr(r, field)),
+                    actual_price    = float(r.actual_price),
+                    model_type      = model_type,
+                    timestamp       = r.datetime,
+                    log             = log
+                )
 
-    pdf       = result_df.toPandas()
-    csv_bytes = pdf.to_csv(index=False).encode("utf-8")
-    obj_name  = f"predictions_batch_{epoch_id}_{int(time.time())}.csv"
+            except Exception as e:
 
-    client.put_object(
-        "bucket-predictions", obj_name,
-        io.BytesIO(csv_bytes), length=len(csv_bytes),
-        content_type="text/csv",
-    )
-    log.info(
-        f"[Batch {epoch_id}] {len(pdf)} rows → "
-        f"MinIO (bucket-predictions/{obj_name}) & POST backend."
-    )
+                log.error(
+                    f"[POST ERROR] "
+                    f"{r.symbol} "
+                    f"{model_type}: {e}"
+                )
+
+    # ==========================================
+    # SAVE PREDICTIONS TO MINIO
+    # ==========================================
+    try:
+
+        client = Minio(
+            MINIO_ENDPOINT,
+            access_key=ACCESS_KEY,
+            secret_key=SECRET_KEY,
+            secure=False
+        )
+
+        bucket_name = "bucket-predictions"
+
+        if not client.bucket_exists(bucket_name):
+
+            client.make_bucket(bucket_name)
+
+        # ======================================
+        # TO CSV
+        # ======================================
+        pdf = result_df.toPandas()
+
+        csv_bytes = pdf.to_csv(
+            index=False
+        ).encode("utf-8")
+
+        obj_name = (
+            f"predictions/"
+            f"batch_{epoch_id}_"
+            f"{int(time.time())}.csv"
+        )
+
+        # ======================================
+        # UPLOAD
+        # ======================================
+        client.put_object(
+            bucket_name,
+            obj_name,
+            io.BytesIO(csv_bytes),
+            length=len(csv_bytes),
+            content_type="text/csv",
+        )
+
+        log.info(
+            f"[Batch {epoch_id}] "
+            f"{len(pdf)} predictions saved → "
+            f"MinIO ({bucket_name}/{obj_name})"
+        )
+
+    except Exception as e:
+
+        log.error(
+            f"[MINIO ERROR] "
+            f"Batch {epoch_id}: {e}"
+        )
 
 
 # ──────────────────────────────────────────────

@@ -14,12 +14,13 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     command: >
       bash -c "
-        pip install scikit-learn minio pandas numpy joblib pyarrow torch &&
+        pip install scikit-learn minio pandas numpy joblib pyarrow torch lightgbm &&
         airflow db init &&
         airflow users create --username admin --password admin --firstname Admin --lastname Admin --role Admin --email admin@example.com
       "
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   airflow-webserver:
     image: apache/airflow:2.9.0
@@ -39,12 +40,14 @@ services:
       - "8081:8080"
     command: >
       bash -c "
-        pip install scikit-learn minio pandas numpy joblib pyarrow torch &&
+        pip install scikit-learn minio pandas numpy joblib pyarrow torch lightgbm &&
         airflow webserver
       "
     depends_on:
-      - airflow-init
-      - postgres
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully  # ← init phải chạy xong
 
   airflow-scheduler:
     image: apache/airflow:2.9.0
@@ -62,12 +65,14 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     command: >
       bash -c "
-        pip install scikit-learn minio pandas numpy joblib pyarrow torch &&
+        pip install scikit-learn minio pandas numpy joblib pyarrow torch lightgbm &&
         airflow scheduler
       "
     depends_on:
-      - airflow-init
-      - postgres
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
 
   frontend:
     build: ./frontend
@@ -82,7 +87,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       - DATABASE_URL=postgresql://user:password123@postgres:5432/stock_db
 
@@ -113,6 +119,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    healthcheck:                                      # ← THÊM VÀO
+      test: ["CMD", "pg_isready", "-U", "user", "-d", "stock_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   # --- THÔNG ĐIỆP THỜI GIAN THỰC (KAFKA & ZOOKEEPER) ---
   zookeeper:

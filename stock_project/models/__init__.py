@@ -7,6 +7,7 @@ import torch.nn as nn
 import joblib
 from ..data.dataset import TimeSeriesDataset
 from torch.utils.data import DataLoader
+import lightgbm as lgb
 
 
 # ========================================
@@ -90,9 +91,45 @@ class KNNModel(BaseModel):
     def load(self, path):
         self.model = joblib.load(path)
 
+# ========================================
+# 4. LIGHTGBM
+# ========================================
+
+class LightGBMModel(BaseModel):
+    def __init__(self,
+                 n_estimators=100,
+                 learning_rate=0.05,
+                 max_depth=6):
+
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.max_depth = max_depth
+
+        self.model = lgb.LGBMRegressor(
+            n_estimators=self.n_estimators,
+            learning_rate=self.learning_rate,
+            max_depth=self.max_depth
+        )
+
+    def train(self, X, y):
+        self.model.fit(X, y)
+
+    def predict(self, X):
+
+        if len(X.shape) == 3:
+            X = X.reshape(X.shape[0], -1)
+
+        return self.model.predict(X)
+
+    def save(self, path):
+        joblib.dump(self.model, path)
+
+    def load(self, path):
+        self.model = joblib.load(path)
+
 
 # ========================================
-# 4. HBLSTM
+# 5. HBLSTM
 # ========================================
 
 # ---- 4.1 HLSTM Cell ----
@@ -252,6 +289,170 @@ class HBLSTMModel(BaseModel):
 
         return loss.item()
 
+# ========================================
+# CNN-LSTM NETWORK
+# ========================================
+
+class CNNLSTMNetwork(nn.Module):
+    def __init__(self, input_size, hidden_size=64):
+        super().__init__()
+
+        self.conv1 = nn.Conv1d(
+            in_channels=input_size,
+            out_channels=64,
+            kernel_size=2
+        )
+
+        self.relu = nn.ReLU()
+
+        self.lstm = nn.LSTM(
+            input_size=64,
+            hidden_size=hidden_size,
+            batch_first=True
+        )
+
+        self.fc = nn.Linear(hidden_size, 1)
+
+    def forward(self, x):
+
+        # x shape:
+        # (batch, seq_len, features)
+
+        x = x.permute(0, 2, 1)
+
+        # -> (batch, features, seq_len)
+
+        x = self.conv1(x)
+        x = self.relu(x)
+
+        # -> (batch, channels, seq)
+
+        x = x.permute(0, 2, 1)
+
+        # -> (batch, seq, channels)
+
+        out, (h, c) = self.lstm(x)
+
+        out = h[-1]
+
+        return self.fc(out)
+
+# ========================================
+# CNN-LSTM MODEL
+# ========================================
+
+class CNNLSTMModel(BaseModel):
+
+    def __init__(self,
+                 input_size=7,
+                 hidden_size=64,
+                 seq_len=3,
+                 lr=1e-4):
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.seq_len = seq_len
+        self.lr = lr
+
+        self.device = torch.device(
+            'cuda' if torch.cuda.is_available() else 'cpu'
+        )
+
+        self.model = CNNLSTMNetwork(
+            input_size,
+            hidden_size
+        ).to(self.device)
+
+        self.criterion = nn.MSELoss()
+
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(),
+            lr=self.lr
+        )
+
+    def train(self, X, y, epochs=50, batch_size=16):
+
+        dataset = TimeSeriesDataset(X, y)
+
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=True
+        )
+
+        for epoch in range(epochs):
+
+            self.model.train()
+
+            total_loss = 0.0
+
+            for batch_X, batch_y in loader:
+
+                batch_X = batch_X.to(self.device)
+                batch_y = batch_y.to(self.device)
+
+                self.optimizer.zero_grad()
+
+                outputs = self.model(batch_X)
+
+                loss = self.criterion(
+                    outputs,
+                    batch_y.unsqueeze(1)
+                )
+
+                loss.backward()
+
+                self.optimizer.step()
+
+                total_loss += loss.item()
+
+            avg_loss = total_loss / len(loader)
+
+            print(
+                f"[CNN-LSTM] Epoch {epoch+1}/{epochs} "
+                f"Loss: {avg_loss:.6f}"
+            )
+
+    def predict(self, X):
+
+        self.model.eval()
+
+        X_tensor = torch.FloatTensor(X).to(self.device)
+
+        with torch.no_grad():
+            preds = self.model(X_tensor)
+
+        return preds.cpu().numpy().flatten()
+
+    def save(self, path):
+
+        torch.save({
+            "model_state_dict": self.model.state_dict(),
+            "input_size": self.input_size,
+            "hidden_size": self.hidden_size,
+            "seq_len": self.seq_len
+        }, path)
+
+    def load(self, path):
+
+        checkpoint = torch.load(
+            path,
+            map_location=self.device
+        )
+
+        self.input_size = checkpoint["input_size"]
+        self.hidden_size = checkpoint["hidden_size"]
+        self.seq_len = checkpoint["seq_len"]
+
+        self.model = CNNLSTMNetwork(
+            self.input_size,
+            self.hidden_size
+        ).to(self.device)
+
+        self.model.load_state_dict(
+            checkpoint["model_state_dict"]
+        )
+
 
 # ========================================
 # EXPORT
@@ -260,5 +461,7 @@ __all__ = [
     'LinearModel',
     'DTModel',
     'KNNModel',
-    'HBLSTMModel'
+    'LightGBMModel',
+    'HBLSTMModel',
+    'CNNLSTMModel'
 ]
