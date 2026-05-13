@@ -1,78 +1,52 @@
 services:
-   # --- AIRFLOW ---
+  # --- AIRFLOW ---
   airflow-init:
-    image: apache/airflow:2.9.0
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     container_name: stock-airflow-init
+    user: root
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://user:password123@postgres:5432/stock_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - AIRFLOW__WEBSERVER__SECRET_KEY=my_super_secret_key_123
-      - PYTHONPATH=/opt/airflow  # để import stock_project được
+      - PYTHONPATH=/opt/airflow
     volumes:
       - ./dags:/opt/airflow/dags
       - .:/opt/airflow/stock_project
       - /var/run/docker.sock:/var/run/docker.sock
-    user: root
     command: >
       bash -c "
-        pip install scikit-learn minio pandas numpy joblib pyarrow torch lightgbm &&
         chmod 666 /var/run/docker.sock &&
-        airflow scheduler
+        airflow db init &&
+        airflow users create --username admin --password admin --firstname Admin --lastname Admin --role Admin --email admin@example.com
       "
     depends_on:
       postgres:
         condition: service_healthy
 
   airflow-webserver:
-    image: apache/airflow:2.9.0
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     container_name: stock-airflow-webserver
     restart: always
+    user: root
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://user:password123@postgres:5432/stock_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
-      - PYTHONPATH=/opt/airflow
       - AIRFLOW__WEBSERVER__SECRET_KEY=my_super_secret_key_123
-      - PYTHONPATH=/opt/airflow  # để import stock_project được
+      - PYTHONPATH=/opt/airflow
     volumes:
       - ./dags:/opt/airflow/dags
       - .:/opt/airflow/stock_project
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8081:8080"
-    user: root
     command: >
       bash -c "
-        pip install scikit-learn minio pandas numpy joblib pyarrow torch lightgbm &&
-        chmod 666 /var/run/docker.sock &&
-        airflow webserver
-      "
-    depends_on:
-      postgres:
-        condition: service_healthy
-      airflow-init:
-        condition: service_completed_successfully  # ← init phải chạy xong
-
-  airflow-scheduler:
-    image: apache/airflow:2.9.0
-    container_name: stock-airflow-scheduler
-    restart: always
-    environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://user:password123@postgres:5432/stock_db
-      - AIRFLOW__CORE__LOAD_EXAMPLES=false
-      - PYTHONPATH=/opt/airflow
-      - AIRFLOW__WEBSERVER__SECRET_KEY=my_super_secret_key_123
-      - PYTHONPATH=/opt/airflow  # để import stock_project được
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - .:/opt/airflow/stock_project
-      - /var/run/docker.sock:/var/run/docker.sock
-    user: root
-    command: >
-      bash -c "
-        pip install scikit-learn minio pandas numpy joblib pyarrow torch lightgbm &&
         chmod 666 /var/run/docker.sock &&
         airflow webserver
       "
@@ -82,6 +56,35 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: stock-airflow-scheduler
+    restart: always
+    user: root
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://user:password123@postgres:5432/stock_db
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__WEBSERVER__SECRET_KEY=my_super_secret_key_123
+      - PYTHONPATH=/opt/airflow
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - .:/opt/airflow/stock_project
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: >
+      bash -c "
+        chmod 666 /var/run/docker.sock &&
+        airflow scheduler
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  # --- FRONTEND ---
   frontend:
     build: ./frontend
     container_name: stock-frontend
@@ -90,6 +93,7 @@ services:
     depends_on:
       - backend
 
+  # --- BACKEND ---
   backend:
     build: ./backend
     ports:
@@ -100,13 +104,13 @@ services:
     environment:
       - DATABASE_URL=postgresql://user:password123@postgres:5432/stock_db
 
-  # --- HỆ THỐNG LƯU TRỮ ĐỐI TƯỢNG (MINIO) ---
+  # --- MINIO ---
   minio:
     image: minio/minio
     container_name: stock-minio
     ports:
-      - "9005:9000"    # API Port
-      - "9006:9001"    # Console Port
+      - "9005:9000"
+      - "9006:9001"
     environment:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: password123
@@ -114,7 +118,7 @@ services:
       - minio_data:/data
     command: server /data --console-address ":9001"
 
-  # --- CƠ SỞ DỮ LIỆU (POSTGRESQL) ---
+  # --- POSTGRESQL ---
   postgres:
     image: postgres:15
     container_name: stock-postgres
@@ -127,19 +131,20 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
-    healthcheck:                                      # ← THÊM VÀO
+    healthcheck:
       test: ["CMD", "pg_isready", "-U", "user", "-d", "stock_db"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  # --- THÔNG ĐIỆP THỜI GIAN THỰC (KAFKA & ZOOKEEPER) ---
+  # --- ZOOKEEPER ---
   zookeeper:
     image: bitnamilegacy/zookeeper:3.8.4
     container_name: stock-zookeeper
     environment:
       - ALLOW_ANONYMOUS_LOGIN=yes
 
+  # --- KAFKA ---
   kafka:
     image: bitnamilegacy/kafka:3.4.1
     container_name: stock-kafka
@@ -149,22 +154,22 @@ services:
       - ALLOW_PLAINTEXT_LISTENER=yes
       - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
-      # Đã sửa lỗi: Xóa dấu hai chấm (:) dư thừa ở EXTERNAL
       - KAFKA_CFG_LISTENERS=INTERNAL://:29092,EXTERNAL://0.0.0.0:9092
       - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:29092,EXTERNAL://localhost:9092
       - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
     depends_on:
       - zookeeper
 
+  # --- SPARK ---
   spark-master:
     build: .
     container_name: stock-spark-master
     hostname: spark-master
     volumes:
-      # Mount stock_project/ vào đúng subfolder, không đụng đến thư mục gốc spark
       - ./:/opt/bitnami/spark/stock_project
     environment:
       - SPARK_MODE=master
+      - PYTHONPATH=/opt/bitnami/spark:/opt/bitnami/spark/stock_project/spark_jobs
     ports:
       - "8080:8080"
       - "7077:7077"
@@ -181,15 +186,15 @@ services:
       - SPARK_MASTER_URL=spark://spark-master:7077
       - SPARK_WORKER_MEMORY=2G
       - SPARK_WORKER_CORES=2
+      - PYTHONPATH=/opt/bitnami/spark:/opt/bitnami/spark/stock_project/spark_jobs
     depends_on:
       - spark-master
 
-  # --- GIAO DIỆN QUẢN LÝ KAFKA ---
+  # --- KAFDROP ---
   kafdrop:
     image: obsidiandynamics/kafdrop
     container_name: stock-kafdrop
     ports:
-      # Đã sửa lỗi: Trả lại cổng 9002 cho Kafdrop để không đụng độ với Kafka (9092)
       - "9002:9000"
     environment:
       KAFKA_BROKERCONNECT: "kafka:29092"

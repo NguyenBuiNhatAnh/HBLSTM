@@ -1,0 +1,12 @@
+FROM apache/airflow:2.9.0
+
+USER root
+RUN apt-get update && apt-get install -y docker.io && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+USER airflow
+RUN pip install --no-cache-dir \
+    scikit-learn minio pandas numpy joblib pyarrow lightgbm
+
+RUN pip install --no-cache-dir \
+    torch --extra-index-url https://download.pytorch.org/whl/cpu
