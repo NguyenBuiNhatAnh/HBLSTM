@@ -1,5 +1,6 @@
 import sys
 sys.path.insert(0, "/home/nhatanh/project/realtime_stock_HBLSTM")
+# sys.path.append("/opt/bitnami/spark/stock_project/spark_jobs")
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json
@@ -8,7 +9,7 @@ from pyspark.sql.types import (
     StringType, DoubleType,
 )
 from collections import defaultdict
-
+import os
 import time
 import io
 import logging
@@ -17,7 +18,7 @@ import pandas as pd
 import numpy as np
 from minio import Minio
 # from support_func import load_models, inverse_close, post_prediction, load_all_runtime_states
-from stock_project.support_func import *
+from support_func import *
 
 
 
@@ -62,13 +63,15 @@ kafka_schema = StructType([
 # OUTPUT SCHEMA (yield từ process_partition)
 # ──────────────────────────────────────────────
 output_schema = StructType([
-    StructField("symbol",       StringType(), True),
-    StructField("datetime",     StringType(), True),
-    StructField("actual_price", DoubleType(), True),
-    StructField("pred_linear",  DoubleType(), True),
-    StructField("pred_dt",      DoubleType(), True),
-    StructField("pred_knn",     DoubleType(), True),
-    StructField("pred_hblstm",  DoubleType(), True),
+    StructField("symbol",        StringType()),
+    StructField("datetime",      StringType()),
+    StructField("actual_price",  DoubleType()),
+    StructField("pred_linear",   DoubleType()),
+    StructField("pred_dt",       DoubleType()),
+    StructField("pred_knn",      DoubleType()),
+    StructField("pred_lightgbm", DoubleType()),  # ✅ phải có
+    StructField("pred_hblstm",   DoubleType()),
+    StructField("pred_cnnlstm",  DoubleType()),  # ✅ phải có
 ])
 
 
@@ -176,7 +179,7 @@ def process_partition(rows):
                 symbol,
                 str(row.datetime),
                 float(row.close),
-                p_linear, p_dt, p_knn, p_hblstm,
+                p_linear, p_dt, p_knn, p_lightgbm, p_hblstm, p_cnnlstm,  # ✅ đủ 6 model
             )
 
     # ── Flush raw data lên MinIO ───────────────────────────────────────────────
@@ -350,6 +353,9 @@ spark = (
     .getOrCreate()
 )
 spark.sparkContext.setLogLevel("WARN")
+spark.sparkContext.addPyFile(
+    os.path.join(os.path.dirname(__file__), "support_func.py")
+)
 
 # ──────────────────────────────────────────────
 # READ STREAM → PARSE JSON

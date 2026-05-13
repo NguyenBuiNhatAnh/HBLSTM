@@ -7,16 +7,18 @@ services:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://user:password123@postgres:5432/stock_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
-      - AIRFLOW__WEBSERVER__SECRET_KEY=my_super_secret_key_123 
+      - AIRFLOW__WEBSERVER__SECRET_KEY=my_super_secret_key_123
+      - PYTHONPATH=/opt/airflow  # để import stock_project được
     volumes:
       - ./dags:/opt/airflow/dags
       - .:/opt/airflow/stock_project
       - /var/run/docker.sock:/var/run/docker.sock
+    user: root
     command: >
       bash -c "
         pip install scikit-learn minio pandas numpy joblib pyarrow torch lightgbm &&
-        airflow db init &&
-        airflow users create --username admin --password admin --firstname Admin --lastname Admin --role Admin --email admin@example.com
+        chmod 666 /var/run/docker.sock &&
+        airflow scheduler
       "
     depends_on:
       postgres:
@@ -31,16 +33,19 @@ services:
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://user:password123@postgres:5432/stock_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - PYTHONPATH=/opt/airflow
-      - AIRFLOW__WEBSERVER__SECRET_KEY=my_super_secret_key_123 
+      - AIRFLOW__WEBSERVER__SECRET_KEY=my_super_secret_key_123
+      - PYTHONPATH=/opt/airflow  # để import stock_project được
     volumes:
       - ./dags:/opt/airflow/dags
       - .:/opt/airflow/stock_project
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8081:8080"
+    user: root
     command: >
       bash -c "
         pip install scikit-learn minio pandas numpy joblib pyarrow torch lightgbm &&
+        chmod 666 /var/run/docker.sock &&
         airflow webserver
       "
     depends_on:
@@ -58,15 +63,18 @@ services:
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://user:password123@postgres:5432/stock_db
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
       - PYTHONPATH=/opt/airflow
-      - AIRFLOW__WEBSERVER__SECRET_KEY=my_super_secret_key_123 
+      - AIRFLOW__WEBSERVER__SECRET_KEY=my_super_secret_key_123
+      - PYTHONPATH=/opt/airflow  # để import stock_project được
     volumes:
       - ./dags:/opt/airflow/dags
       - .:/opt/airflow/stock_project
       - /var/run/docker.sock:/var/run/docker.sock
+    user: root
     command: >
       bash -c "
         pip install scikit-learn minio pandas numpy joblib pyarrow torch lightgbm &&
-        airflow scheduler
+        chmod 666 /var/run/docker.sock &&
+        airflow webserver
       "
     depends_on:
       postgres:

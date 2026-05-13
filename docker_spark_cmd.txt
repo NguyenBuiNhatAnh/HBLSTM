@@ -1,0 +1,6 @@
+docker exec -it stock-spark-master spark-submit \
+  --master spark://spark-master:7077 \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1 \
+  /opt/bitnami/spark/stock_project/spark_jobs/spark_streaming.py
+
+python -m stock_project.crawler.crawler_demo

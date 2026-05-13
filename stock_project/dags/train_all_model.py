@@ -1,6 +1,6 @@
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
-from stock_project.models import LinearModel, DTModel, KNNModel, HBLSTMModel
+from stock_project.models import LinearModel, DTModel, KNNModel, HBLSTMModel, CNNLSTMModel, LightGBMModel
 from stock_project.data.data_preprocessing import calculate_ema5, preprocess_data
 from stock_project.data.dataset import create_sliding_windows
 from sklearn.metrics import mean_squared_error
@@ -57,13 +57,13 @@ def upload_sklearn_model(client: Minio, model_obj, symbol: str, name: str):
         length=buffer.getbuffer().nbytes
     )
 
-def upload_pytorch_model(client: Minio, state_dict, symbol: str):
+def upload_pytorch_model(client: Minio, state_dict, symbol: str, name: str):  # ✅ thêm name
     buffer = io.BytesIO()
     torch.save(state_dict, buffer)
     buffer.seek(0)
     client.put_object(
         "bucket-models",
-        f"{symbol}/hblstm.pth",
+        f"{symbol}/{name}.pth",  # ✅ dùng name thay vì hardcode hblstm
         buffer,
         length=buffer.getbuffer().nbytes
     )
@@ -157,7 +157,9 @@ def train_all_model():
         linear_regression = LinearModel()
         decision_tree     = DTModel()
         knn               = KNNModel()
+        lightgbm          = LightGBMModel()
         hblstm            = HBLSTMModel()
+        cnnlstm           = CNNLSTMModel()
 
         print(f"  Training Linear Regression...")
         linear_regression.train(X_train_flat, y_train)
@@ -167,9 +169,15 @@ def train_all_model():
 
         print(f"  Training KNN...")
         knn.train(X_train_flat, y_train)
+        
+        print(f"  Training LightGBM...")
+        lightgbm.train(X_train_flat, y_train)
 
         print(f"  Training HBLSTM...")
         hblstm.train(X_train, y_train)
+        
+        print(f"  Training CNN_LSTM...")
+        cnnlstm.train(X_train, y_train)
 
         # ------------------------------------------------------------------
         # 5. EVALUATE
@@ -178,7 +186,9 @@ def train_all_model():
         evaluate(y_test, linear_regression.predict(X_test_flat), "Linear Regression")
         evaluate(y_test, decision_tree.predict(X_test_flat),     "Decision Tree")
         evaluate(y_test, knn.predict(X_test_flat),               "KNN")
+        evaluate(y_test, lightgbm.predict(X_test_flat),          "LightGBM")
         evaluate(y_test, hblstm.predict(X_test),                 "HBLSTM")
+        evaluate(y_test, cnnlstm.predict(X_test),                "CNN_LSTM")
 
         # ------------------------------------------------------------------
         # 6. UPLOAD LÊN MINIO
@@ -188,12 +198,18 @@ def train_all_model():
         upload_sklearn_model(client, linear_regression.model, symbol, "linear")
         upload_sklearn_model(client, decision_tree.model,     symbol, "decision_tree")
         upload_sklearn_model(client, knn.model,               symbol, "knn")
-        upload_pytorch_model(client, hblstm.model.state_dict(), symbol)
+        upload_sklearn_model(client, lightgbm.model,          symbol, "lightgbm")  # ✅ thêm
+
+        upload_pytorch_model(client, hblstm.model.state_dict(),  symbol, "hblstm")   # ✅ thêm name
+        upload_pytorch_model(client, cnnlstm.model.state_dict(), symbol, "cnnlstm")  # ✅ thêm
+
         upload_scaler(client, scaler, symbol)
+
         upload_config(client, {
             "seq_len":       seq_len,
             "input_size":    input_size,
-            "hidden_size":   hblstm.hidden_size,
+            "hblstm_hidden_size":   hblstm.hidden_size,
+            "cnnlstm_hidden_size": cnnlstm.hidden_size,
             "features_cols": features_cols,
             "target_col":    "close"
         }, symbol)
